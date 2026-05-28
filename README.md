@@ -219,3 +219,62 @@ No human interaction. That's the story.
 - Somnia Faucet: https://testnet.somnia.network
 - Hackathon Telegram: https://t.me/+XHq0F0JXMyhmMzM0
 - Workshop "How to build on Somnia": Fri 22 May, 5 PM BST
+
+---
+
+## UK Payroll — How It Works
+
+### The Problem ShiftSettle Solves
+
+A temp worker earning £15/hr doesn't receive £15/hr.
+Before a penny reaches them, UK law requires:
+
+| Deduction | Who pays | Rate |
+|-----------|----------|------|
+| Income Tax (PAYE) | Worker | Based on tax code (e.g. 20% basic rate) |
+| Employee National Insurance | Worker | 8% between £242–£967/wk |
+| Employee Pension | Worker | 5% on qualifying earnings (auto-enrolment) |
+| Holiday Pay | Employer accrual | 12.07% of gross (5.6 weeks/yr) |
+| Employer NI | Employer ON TOP | 13.8% above £175/wk |
+| Employer Pension | Employer ON TOP | 3% on qualifying earnings |
+
+A worker earning £120 for an 8-hour shift at £15/hr ends up with ~£87 net.
+The employer's true cost is ~£140. ShiftSettle calculates all of this autonomously.
+
+### The LLM Payroll Agent Prompt
+
+The contract sends the LLM a structured prompt with:
+- Worker's tax code (1257L, BR, 0T, etc.)
+- NI category (A, B, C, H, M)
+- Year-to-date gross and tax paid (for cumulative tax calculation)
+- Pension opt-in status
+- Gross pay for the shift and the week number
+
+The LLM returns a **pipe-delimited string of integers in pence**:
+
+```
+APPROVED|12000|1840|784|1104|600|360|1448|8776
+```
+
+`PayrollParser.sol` splits this string in Solidity and decodes each field.
+No JSON, no floats — just integers the EVM can handle reliably.
+
+### On-Chain HMRC Audit Trail
+
+Every settled shift stores:
+- Full payslip breakdown (all 8 deduction lines)
+- Cumulative employer liabilities (tax to HMRC, employer NI, pension)
+- Worker YTD figures updated for the next calculation
+- The raw LLM response for full auditability
+
+This is RTI-ready data. The employer can export it for their FPS submission.
+
+### Worker Profile
+
+Workers register once with their:
+- Tax code (from P45 or HMRC starter checklist)
+- NI category (from P46/starter declaration)
+- YTD gross and tax paid (from P45 if transferring mid-year)
+- Pension opt-in
+
+This data is stored on-chain and updated automatically after each settled shift.

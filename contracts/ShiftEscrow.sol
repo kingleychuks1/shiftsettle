@@ -1,44 +1,35 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
+import "./PayrollParser.sol";
+
 // ============================================================
-//  ShiftSettle — Autonomous Workforce Verification & Payment
+//  ShiftSettle — Autonomous Workforce Verification & UK Payroll
 //  Built for Somnia Agentathon 2026
 //
-//  HOW IT WORKS (read this first):
+//  ALL VALUES CONFIRMED from agents.somnia.network code generator
+//  (see AGENTS_REFERENCE.md for full cheat sheet)
 //
-//  1. An employer calls depositShift() with STT escrow. The shift
-//     is now "funded" and waiting for the worker to submit hours.
-//
-//  2. A worker calls submitHours() when they've finished.
-//     This triggers the FIRST Somnia Agent call: JSON API Request.
-//     The agent fetches the worker's actual clock-in/out record
-//     from an external timesheet API (e.g. your FlexStaff backend).
-//
-//  3. The JSON API agent calls back handleTimesheetResponse().
-//     If the hours check out, a SECOND agent is triggered: LLM Inference.
-//     The agent runs an on-chain AI model to validate edge cases
-//     (disputes, partial hours, overtime rules) deterministically.
-//
-//  4. The LLM agent calls back handleLLMDecision().
-//     If approved → worker can claim payment.
-//     If rejected → employer's escrow is released back to them.
-//
-//  Zero humans required in the loop. That's the demo.
+//  FLOW:
+//  1. Worker registers profile (tax code, NI, YTD, pension)
+//  2. Employer depositShift() — escrow covers gross + employer NI + pension
+//  3. Worker submitHours() → JSON API Agent fetches verified hours
+//  4. JSON callback → LLM Payroll Agent calculates all deductions
+//  5. LLM callback → PayrollParser decodes pipe-delimited payslip
+//  6. Worker claimPayment() receives NET pay
+//     Employer liabilities (tax, NI, pension) stored on-chain for HMRC
 // ============================================================
 
-// --- Somnia Agent Platform types (copy from docs or code generator) ---
-// Visit https://agents.somnia.network to get agent IDs and generate
-// the exact payload encoding for each agent you use.
+// ── Somnia platform types (identical to code generator output) ──
 
 enum ConsensusType { Majority, Threshold }
 
 enum ResponseStatus {
     None,      // 0 - uninitialised
-    Pending,   // 1 - awaiting validator responses
+    Pending,   // 1 - awaiting responses
     Success,   // 2 - consensus reached
     Failed,    // 3 - validators reported failure
-    TimedOut   // 4 - deadline passed
+    TimedOut   // 4 - request timed out
 }
 
 struct Response {
@@ -68,7 +59,7 @@ struct Request {
     uint256 perAgentBudget;
 }
 
-// Minimal interface — only what we actually call
+// ── Platform interface — CONFIRMED from code generator ──────────
 interface IAgentRequester {
     function createRequest(
         uint256 agentId,
@@ -76,169 +67,314 @@ interface IAgentRequester {
         bytes4  callbackSelector,
         bytes   calldata payload
     ) external payable returns (uint256 requestId);
+
+    // Returns the minimum floor deposit the contract requires.
+    // MUST call this + add execution reward before invoking an agent.
+    function getRequestDeposit() external view returns (uint256);
+}
+
+// ── Agent interfaces — CONFIRMED from code generator ────────────
+// These exist solely for .selector and ABI-encoding.
+// We never actually call these contracts directly.
+
+interface IJsonApiAgent {
+    // Fetches a value from a public JSON API.
+    // url:      full URL of the JSON API endpoint
+    // selector: dot-notation key path e.g. "hoursWorked" or "data.hours"
+    // Returns:  ABI-encoded string (e.g. "8") — parse to uint in callback
+    function fetchString(
+        string memory url,
+        string memory selector
+    ) external returns (string memory);
+}
+
+interface ILLMAgent {
+    // Runs deterministic LLM inference (Qwen3-30B) across validator network.
+    // prompt:        user prompt
+    // system:        system prompt (sets the model's role/persona)
+    // chainOfThought: true = show reasoning steps (slower, non-deterministic friendly)
+    //                 false = direct answer only (faster, more deterministic)
+    // allowedValues: if non-empty, output is CONSTRAINED to one of these strings.
+    //                The network enforces this — hallucination impossible.
+    //                Pass empty array [] for free-form output.
+    // Returns:       ABI-encoded string
+    function inferString(
+        string memory prompt,
+        string memory system,
+        bool chainOfThought,
+        string[] memory allowedValues
+    ) external returns (string memory);
 }
 
 // ============================================================
 
 contract ShiftEscrow {
+    using PayrollParser for string;
 
     // ----------------------------------------------------------
-    // CONFIG — swap these after checking agents.somnia.network
+    // CONFIG — ALL CONFIRMED from agents.somnia.network
     // ----------------------------------------------------------
 
-    // Testnet platform contract (from Somnia docs)
+    // ✅ Platform contract — CONFIRMED (testnet)
     IAgentRequester public constant PLATFORM =
-        IAgentRequester(0x037Bb9C718F3f7fe5eCBDB0b600D607b52706776);
+        IAgentRequester(0x5E5205CF39E766118C01636bED000A54D93163E6);
 
-    // Agent IDs: look these up at https://agents.somnia.network
-    // JSON API Request agent — fetches timesheet data from your API
-    uint256 public constant JSON_API_AGENT_ID = 1;   // ← UPDATE THIS
-    // LLM Inference agent — deterministic on-chain AI decision
-    uint256 public constant LLM_AGENT_ID = 2;         // ← UPDATE THIS
+    // ✅ Agent IDs — CONFIRMED
+    uint256 public constant JSON_API_AGENT_ID      = 13174292974160097713;
+    uint256 public constant LLM_AGENT_ID           = 12847293847561029384;
+    uint256 public constant LLM_PARSE_WEB_AGENT_ID = 12875401142070969085; // unused in v1
 
-    // How much STT to reserve for agent gas costs (per invocation)
-    // Check Gas Fees docs to size this correctly; 0.1 STT is a safe start
-    uint256 public constant AGENT_GAS_RESERVE = 0.1 ether;
+    // ✅ Execution costs per runner — CONFIRMED from code generator
+    // JSON API: 0.03 STT per runner
+    uint256 public constant JSON_API_EXECUTION_COST = 30000000000000000;
+    // LLM Inference: 0.07 STT per runner
+    uint256 public constant LLM_EXECUTION_COST      = 70000000000000000;
 
-    // Your timesheet API base URL (replace with FlexStaff or mock endpoint)
+    // ✅ Subcommittee size — default is 3 (confirmed)
+    uint256 public constant SUBCOMMITTEE_SIZE = 3;
+
+    // Total deposit per agent call = platform floor + (cost × runners)
+    // We calculate this dynamically in _deposit() using getRequestDeposit()
+    // Approximate totals for reference:
+    //   JSON API: floor + (0.03 × 3) = floor + 0.09 STT
+    //   LLM:      floor + (0.07 × 3) = floor + 0.21 STT
+
+    // Your timesheet API base URL
+    // The JSON API agent will call: TIMESHEET_API + externalShiftId
+    // and extract the "hoursWorked" field from the JSON response
     string public constant TIMESHEET_API = "https://api.flexstaff.co.uk/timesheets/";
 
     // ----------------------------------------------------------
-    // DATA STRUCTURES
+    // DEPOSIT HELPER
+    //
+    // Why dynamic? The platform floor (getRequestDeposit()) can change.
+    // Hardcoding it would cause "insufficient deposit" reverts silently.
+    // Always calculate just before calling createRequest.
+    // ----------------------------------------------------------
+
+    function _deposit(uint256 executionCostPerAgent) internal view returns (uint256) {
+        uint256 floor  = PLATFORM.getRequestDeposit();
+        uint256 reward = executionCostPerAgent * SUBCOMMITTEE_SIZE;
+        return floor + reward;
+    }
+
+    // ----------------------------------------------------------
+    // WORKER PROFILE
+    // ----------------------------------------------------------
+
+    struct WorkerProfile {
+        string  taxCode;           // e.g. "1257L", "BR", "0T"
+        string  niCategory;        // e.g. "A", "B", "C", "H", "M"
+        uint256 ytdGrossPence;     // cumulative gross this tax year
+        uint256 ytdTaxPaidPence;   // cumulative tax paid this tax year
+        bool    pensionOptedIn;
+        bool    registered;
+    }
+
+    mapping(address => WorkerProfile) public workerProfiles;
+
+    // ----------------------------------------------------------
+    // ON-CHAIN PAYSLIP
+    // Permanently stored per shift. Full UK statutory breakdown.
+    // ----------------------------------------------------------
+
+    struct OnChainPayslip {
+        uint256 grossPayPence;
+        uint256 incomeTaxPence;        // deducted from worker
+        uint256 employeeNIPence;       // deducted from worker
+        uint256 employerNIPence;       // employer liability (on top)
+        uint256 employeePensionPence;  // deducted from worker
+        uint256 employerPensionPence;  // employer liability (on top)
+        uint256 holidayPayPence;       // 12.07% accrual
+        uint256 netPayPence;           // worker receives this
+        string  llmRawResponse;        // full agent output — on-chain audit
+    }
+
+    mapping(uint256 => OnChainPayslip) public payslips;
+
+    // ----------------------------------------------------------
+    // EMPLOYER HMRC LIABILITIES
+    // Accumulated across all shifts. Exported for RTI submission.
+    // ----------------------------------------------------------
+
+    struct EmployerLiabilities {
+        uint256 taxToHMRC;           // income tax collected on behalf of workers
+        uint256 employerNIToHMRC;    // employer NI owed to HMRC
+        uint256 pensionToProvider;   // total pension both sides
+    }
+
+    mapping(address => EmployerLiabilities) public employerLiabilities;
+
+    // ----------------------------------------------------------
+    // SHIFT
     // ----------------------------------------------------------
 
     enum ShiftStatus {
-        Funded,       // employer deposited, waiting for worker
-        Submitted,    // worker submitted hours, JSON agent pending
-        LLMPending,   // JSON verified, LLM agent running
-        Approved,     // LLM approved, worker can claim
-        Rejected,     // LLM rejected, employer can reclaim
-        Settled       // payment claimed/reclaimed
+        Funded,      // employer deposited, awaiting worker
+        Submitted,   // worker submitted hours, JSON agent running
+        LLMPending,  // hours verified, LLM payroll agent running
+        Approved,    // payslip calculated, worker can claim
+        Rejected,    // failed, employer reclaims
+        Settled      // done
     }
 
     struct Shift {
         address employer;
         address worker;
-        uint256 escrow;          // STT held for worker payment
-        uint256 agreedHourlyRate; // in wei per hour
+        uint256 escrow;
+        uint256 agreedHourlyRatePence; // gross rate in pence e.g. 1500 = £15/hr
         uint256 agreedHours;
-        uint256 submittedHours;  // what worker claims
-        uint256 verifiedHours;   // what the API returns
+        uint256 submittedHours;
+        uint256 verifiedHours;
         ShiftStatus status;
-        string  externalShiftId; // your FlexStaff shiftId
-        string  llmReasoning;    // stored for audit/demo purposes
+        string  externalShiftId;
+        uint256 weekNumber;            // ISO week number for NI threshold calc
     }
 
-    // shiftId (on-chain) → Shift
     mapping(uint256 => Shift) public shifts;
     uint256 public nextShiftId;
 
-    // Somnia Agent requestId → on-chain shiftId
-    // We need this to route callbacks back to the right shift
+    // Maps Somnia requestId → our shiftId so callbacks can find the right shift
     mapping(uint256 => uint256) public requestToShift;
-    // Flag so we know which agent type the callback is for
-    mapping(uint256 => bool)    public requestIsLLM;
 
     // ----------------------------------------------------------
-    // EVENTS — emit these; the frontend listens to them
+    // EVENTS
     // ----------------------------------------------------------
 
+    event WorkerRegistered(address indexed worker, string taxCode, string niCategory);
     event ShiftFunded(uint256 indexed shiftId, address employer, address worker, uint256 escrow);
-    event HoursSubmitted(uint256 indexed shiftId, uint256 submittedHours, uint256 agentRequestId);
+    event HoursSubmitted(uint256 indexed shiftId, uint256 hours, uint256 agentRequestId);
     event TimesheetVerified(uint256 indexed shiftId, uint256 verifiedHours, uint256 llmRequestId);
-    event LLMDecision(uint256 indexed shiftId, bool approved, string reasoning);
-    event PaymentReleased(uint256 indexed shiftId, address recipient, uint256 amount);
+    event PayslipCalculated(
+        uint256 indexed shiftId,
+        uint256 grossPay, uint256 incomeTax, uint256 employeeNI,
+        uint256 employerNI, uint256 employeePension, uint256 employerPension,
+        uint256 holidayPay, uint256 netPay
+    );
+    event PaymentReleased(uint256 indexed shiftId, address recipient, uint256 amountPence);
+    event ShiftRejected(uint256 indexed shiftId, string reason);
 
     // ----------------------------------------------------------
-    // STEP 1: Employer deposits escrow and registers the shift
+    // STEP 0: Worker registers profile (once, at onboarding)
+    // ----------------------------------------------------------
+
+    function registerWorker(
+        string calldata taxCode,
+        string calldata niCategory,
+        uint256 ytdGrossPence,
+        uint256 ytdTaxPaidPence,
+        bool pensionOptedIn
+    ) external {
+        workerProfiles[msg.sender] = WorkerProfile({
+            taxCode:         taxCode,
+            niCategory:      niCategory,
+            ytdGrossPence:   ytdGrossPence,
+            ytdTaxPaidPence: ytdTaxPaidPence,
+            pensionOptedIn:  pensionOptedIn,
+            registered:      true
+        });
+        emit WorkerRegistered(msg.sender, taxCode, niCategory);
+    }
+
+    // ----------------------------------------------------------
+    // STEP 1: Employer deposits escrow and funds the shift
+    //
+    // How much to send (msg.value):
+    //   At minimum: gross + employerNI (~13.8%) + employerPension (~3%)
+    //   + agent deposits for both calls (~0.30 STT total)
+    //   + a buffer for the escrow check below
+    //
+    // Formula: send (agreedHours * agreedHourlyRate * 1.20) STT + 0.5 STT buffer
+    // Any leftover is returned to employer after settlement.
     // ----------------------------------------------------------
 
     function depositShift(
         address worker,
         uint256 agreedHours,
-        uint256 agreedHourlyRate, // wei per hour
-        string calldata externalShiftId
+        uint256 agreedHourlyRatePence,
+        string calldata externalShiftId,
+        uint256 weekNumber
     ) external payable returns (uint256 shiftId) {
-        require(msg.value > AGENT_GAS_RESERVE * 2, "Escrow too small to cover agent costs");
-        require(agreedHours > 0 && agreedHours <= 24, "Invalid hours");
+        require(workerProfiles[worker].registered, "Worker not registered");
+        require(agreedHours > 0 && agreedHours <= 24, "Invalid hours: 1-24");
+        require(weekNumber >= 1 && weekNumber <= 52, "Invalid week: 1-52");
+
+        // Must have enough to cover at least both agent deposits
+        uint256 minDeposit = _deposit(JSON_API_EXECUTION_COST) + _deposit(LLM_EXECUTION_COST);
+        require(msg.value >= minDeposit, "Escrow too small for agent costs");
 
         shiftId = nextShiftId++;
 
         shifts[shiftId] = Shift({
-            employer:         msg.sender,
-            worker:           worker,
-            escrow:           msg.value,
-            agreedHourlyRate: agreedHourlyRate,
-            agreedHours:      agreedHours,
-            submittedHours:   0,
-            verifiedHours:    0,
-            status:           ShiftStatus.Funded,
-            externalShiftId:  externalShiftId,
-            llmReasoning:     ""
+            employer:              msg.sender,
+            worker:                worker,
+            escrow:                msg.value,
+            agreedHourlyRatePence: agreedHourlyRatePence,
+            agreedHours:           agreedHours,
+            submittedHours:        0,
+            verifiedHours:         0,
+            status:                ShiftStatus.Funded,
+            externalShiftId:       externalShiftId,
+            weekNumber:            weekNumber
         });
 
         emit ShiftFunded(shiftId, msg.sender, worker, msg.value);
     }
 
     // ----------------------------------------------------------
-    // STEP 2: Worker submits their hours → triggers JSON API Agent
+    // STEP 2: Worker submits hours → JSON API Agent
+    //
+    // The agent calls TIMESHEET_API + externalShiftId and extracts
+    // the "hoursWorked" field. Validated by 3 Somnia validators.
+    // Returns ABI-encoded string (e.g. "8") — decoded in callback.
     // ----------------------------------------------------------
 
-    function submitHours(uint256 shiftId, uint256 hoursWorked) external payable {
+    function submitHours(uint256 shiftId, uint256 hoursWorked) external {
         Shift storage shift = shifts[shiftId];
         require(msg.sender == shift.worker, "Not the assigned worker");
-        require(shift.status == ShiftStatus.Funded, "Shift not in Funded state");
-        require(hoursWorked > 0 && hoursWorked <= 24, "Invalid hours");
+        require(shift.status == ShiftStatus.Funded, "Not in Funded state");
+        require(hoursWorked > 0 && hoursWorked <= 24, "Invalid hours: 1-24");
 
         shift.submittedHours = hoursWorked;
         shift.status = ShiftStatus.Submitted;
 
-        // Build the JSON API agent payload
-        // This asks the agent to fetch the timesheet record and extract
-        // the "hoursWorked" field. The agent will call your API and
-        // return the value, validated by consensus across Somnia nodes.
-        //
-        // Payload format for JSON API Request agent (check agents.somnia.network
-        // for the exact selector and encoding for your agent version):
-        string memory url = string(abi.encodePacked(
-            TIMESHEET_API, shift.externalShiftId
-        ));
-        // JSONPath selector to extract the hours from the response
-        string memory jsonPath = "$.hoursWorked";
+        string memory url = string(abi.encodePacked(TIMESHEET_API, shift.externalShiftId));
 
-        bytes memory payload = abi.encodeWithSignature(
-            "request(string,string)",
+        // ✅ CONFIRMED payload encoding from agents.somnia.network code generator
+        // fetchString(string url, string selector) → returns string
+        // selector is the JSON key name, e.g. "hoursWorked"
+        bytes memory payload = abi.encodeWithSelector(
+            IJsonApiAgent.fetchString.selector,
             url,
-            jsonPath
+            "hoursWorked"   // key in the API response JSON
         );
 
-        // Call the agent. We pay AGENT_GAS_RESERVE from the shift escrow
-        // (employer already sent enough value in depositShift).
-        // The remaining escrow stays in this contract for worker payment.
-        uint256 agentRequestId = PLATFORM.createRequest{value: AGENT_GAS_RESERVE}(
+        uint256 jsonDeposit = _deposit(JSON_API_EXECUTION_COST);
+
+        uint256 agentRequestId = PLATFORM.createRequest{value: jsonDeposit}(
             JSON_API_AGENT_ID,
             address(this),
             this.handleTimesheetResponse.selector,
             payload
         );
 
-        // Map the Somnia request back to our shift so the callback can find it
         requestToShift[agentRequestId] = shiftId;
-
         emit HoursSubmitted(shiftId, hoursWorked, agentRequestId);
     }
 
     // ----------------------------------------------------------
-    // STEP 3: JSON API Agent callback → triggers LLM Agent
+    // STEP 3: JSON API callback → LLM Payroll Agent
+    //
+    // fetchString returns a string — parse it to uint256 here.
+    // If hours match the submission, trigger the LLM payroll calculation.
     // ----------------------------------------------------------
 
     function handleTimesheetResponse(
         uint256 requestId,
         Response[] memory responses,
         ResponseStatus status,
-        Request memory /* details */
+        Request memory
     ) external {
-        // SECURITY: Only the platform contract can call us back
         require(msg.sender == address(PLATFORM), "Only Somnia platform");
 
         uint256 shiftId = requestToShift[requestId];
@@ -246,68 +382,119 @@ contract ShiftEscrow {
         require(shift.status == ShiftStatus.Submitted, "Unexpected callback state");
 
         if (status != ResponseStatus.Success || responses.length == 0) {
-            // Agent failed (API unreachable, timeout, etc.) → refund employer
-            _rejectShift(shiftId, "Timesheet API verification failed");
+            _rejectShift(shiftId, "Timesheet API agent failed or timed out");
             return;
         }
 
-        // Decode the result — the JSON API agent returns a uint256
-        // (we told it the JSONPath, it extracted the number and ABI-encoded it)
-        uint256 apiHours = abi.decode(responses[0].result, (uint256));
+        // Decode the string result from the JSON API agent
+        // e.g. result bytes decodes to "8"
+        string memory hoursStr = abi.decode(responses[0].result, (string));
+
+        // Parse string to uint256 using our PayrollParser utility
+        uint256 apiHours = PayrollParser.parseUintFromString(hoursStr);
+
         shift.verifiedHours = apiHours;
 
-        // Tolerance: allow ±0 hour discrepancy (you can make this flexible)
-        bool hoursMatch = (apiHours == shift.submittedHours);
-
-        if (!hoursMatch) {
-            _rejectShift(shiftId, "Hours submitted don't match API record");
+        if (apiHours != shift.submittedHours) {
+            _rejectShift(shiftId, string(abi.encodePacked(
+                "Hours mismatch: worker submitted ",
+                _toString(shift.submittedHours),
+                " but timesheet API recorded ",
+                _toString(apiHours)
+            )));
             return;
         }
 
-        // Hours verified. Now hand off to the LLM agent for the final decision.
-        // The LLM checks things the simple API check can't: overtime rules,
-        // break deductions, dispute flags, etc.
+        // Hours verified. Trigger LLM payroll calculation.
         shift.status = ShiftStatus.LLMPending;
 
-        // Build the LLM prompt. Keep it tight — deterministic models do better
-        // with structured, unambiguous instructions.
+        WorkerProfile memory profile = workerProfiles[shift.worker];
+        uint256 grossPence = apiHours * shift.agreedHourlyRatePence;
+        uint256 holPence   = (grossPence * 1207) / 10000; // 12.07% holiday pay
+
+        // ── SYSTEM PROMPT ────────────────────────────────────────
+        // Sets the model's role. Keep short — every token costs gas.
+        string memory system = "You are a UK PAYE payroll calculator. "
+            "You follow HMRC rules precisely. "
+            "You respond only in the exact format specified. No extra text.";
+
+        // ── USER PROMPT ──────────────────────────────────────────
+        // Contains all the data the LLM needs to calculate deductions.
+        // We pre-calculate gross and holiday pay in Solidity to keep
+        // the prompt shorter and the LLM's job simpler (fewer errors).
         string memory prompt = string(abi.encodePacked(
-            "You are an autonomous payroll auditor. "
-            "Review this shift and decide if payment should be APPROVED or REJECTED. "
-            "Shift ID: ", shift.externalShiftId, ". "
-            "Agreed hours: ", _toString(shift.agreedHours), ". "
-            "Verified hours from API: ", _toString(apiHours), ". "
-            "Reply with exactly: APPROVED: <one sentence reason> "
-            "or REJECTED: <one sentence reason>. No other text."
+            "Calculate UK statutory payroll deductions.\n\n",
+
+            "WORKER:\n",
+            "Tax code: ", profile.taxCode, "\n",
+            "NI category: ", profile.niCategory, "\n",
+            "YTD gross this tax year: ", _toString(profile.ytdGrossPence), "p\n",
+            "YTD income tax paid: ", _toString(profile.ytdTaxPaidPence), "p\n",
+            "Pension opted in: ", profile.pensionOptedIn ? "YES" : "NO", "\n\n",
+
+            "THIS SHIFT:\n",
+            "Gross pay: ", _toString(grossPence), " pence\n",
+            "Holiday pay (12.07%): ", _toString(holPence), " pence\n",
+            "Tax week: ", _toString(shift.weekNumber), "\n\n",
+
+            "RULES (apply in order):\n",
+            "1. Tax: code 1257L = 24,200p/yr free (241p/wk), then 20% basic rate.\n",
+            "   BR = 20% on all. 0T = no allowance. Use week number for weekly calc.\n",
+            "2. Employee NI (cat A): 8% on earnings 242p-967p/wk, 2% above 967p/wk.\n",
+            "   Cat C: no NI. Cat B/H/M: reduced rates per HMRC tables.\n",
+            "3. Employer NI: 13.8% on earnings above 175p/wk.\n",
+            "4. Employee pension (if opted in): 5% of earnings above 120p/wk.\n",
+            "5. Employer pension (if opted in): 3% of earnings above 120p/wk.\n",
+            "6. Net = gross + holiday - income tax - employee NI - employee pension.\n\n",
+
+            "RESPOND WITH EXACTLY THIS LINE AND NOTHING ELSE:\n",
+            "APPROVED|<grossPence>|<incomeTaxPence>|<employeeNIPence>|<employerNIPence>|<employeePensionPence>|<employerPensionPence>|<holidayPayPence>|<netPayPence>\n",
+            "All values: integers in pence, no decimals, no commas, no currency symbols.\n",
+            "Example: APPROVED|12000|1840|784|1104|600|360|1448|8776"
         ));
 
-        bytes memory llmPayload = abi.encodeWithSignature(
-            "infer(string)",
-            prompt
+        // ✅ CONFIRMED payload encoding from agents.somnia.network code generator
+        // inferString(string prompt, string system, bool chainOfThought, string[] allowedValues)
+        // chainOfThought = false → direct answer, faster, more deterministic
+        // allowedValues  = [] → free-form (we parse the pipe-delimited output ourselves)
+        //
+        // NOTE: If you want to do a binary APPROVED/REJECTED first and then
+        // call inferString a second time for the numbers, set:
+        //   allowedValues = ["APPROVED", "REJECTED"]
+        // The network will enforce the constraint — impossible to hallucinate.
+        // For the hackathon we combine both in one call to save agent cost.
+        string[] memory noConstraint = new string[](0);
+
+        bytes memory llmPayload = abi.encodeWithSelector(
+            ILLMAgent.inferString.selector,
+            prompt,
+            system,
+            false,         // chainOfThought off — deterministic, cost-efficient
+            noConstraint   // no allowed values — we parse free-form output
         );
 
-        uint256 llmRequestId = PLATFORM.createRequest{value: AGENT_GAS_RESERVE}(
+        uint256 llmDeposit = _deposit(LLM_EXECUTION_COST);
+
+        uint256 llmRequestId = PLATFORM.createRequest{value: llmDeposit}(
             LLM_AGENT_ID,
             address(this),
-            this.handleLLMDecision.selector,
+            this.handlePayrollDecision.selector,
             llmPayload
         );
 
         requestToShift[llmRequestId] = shiftId;
-        requestIsLLM[llmRequestId] = true;
-
         emit TimesheetVerified(shiftId, apiHours, llmRequestId);
     }
 
     // ----------------------------------------------------------
-    // STEP 4: LLM Agent callback → final decision
+    // STEP 4: LLM callback → parse payslip, update liabilities
     // ----------------------------------------------------------
 
-    function handleLLMDecision(
+    function handlePayrollDecision(
         uint256 requestId,
         Response[] memory responses,
         ResponseStatus status,
-        Request memory /* details */
+        Request memory
     ) external {
         require(msg.sender == address(PLATFORM), "Only Somnia platform");
 
@@ -316,50 +503,89 @@ contract ShiftEscrow {
         require(shift.status == ShiftStatus.LLMPending, "Unexpected callback state");
 
         if (status != ResponseStatus.Success || responses.length == 0) {
-            _rejectShift(shiftId, "LLM agent failed to reach consensus");
+            _rejectShift(shiftId, "LLM payroll agent failed to reach consensus");
             return;
         }
 
-        // LLM returns a string. We check if it starts with "APPROVED".
-        string memory decision = abi.decode(responses[0].result, (string));
-        shift.llmReasoning = decision;
+        string memory raw = abi.decode(responses[0].result, (string));
 
-        bool approved = _startsWith(decision, "APPROVED");
+        // PayrollParser.parse() splits the pipe-delimited string and
+        // returns a structured Payslip with all 8 deduction fields
+        PayrollParser.Payslip memory slip = PayrollParser.parse(raw);
 
-        if (approved) {
-            shift.status = ShiftStatus.Approved;
-            emit LLMDecision(shiftId, true, decision);
-        } else {
-            _rejectShift(shiftId, decision);
+        if (!slip.approved) {
+            _rejectShift(shiftId, string(abi.encodePacked("Payroll rejected: ", raw)));
+            return;
         }
+
+        // Store permanent on-chain payslip — full audit trail
+        payslips[shiftId] = OnChainPayslip({
+            grossPayPence:        slip.grossPay,
+            incomeTaxPence:       slip.incomeTax,
+            employeeNIPence:      slip.employeeNI,
+            employerNIPence:      slip.employerNI,
+            employeePensionPence: slip.employeePension,
+            employerPensionPence: slip.employerPension,
+            holidayPayPence:      slip.holidayPay,
+            netPayPence:          slip.netPay,
+            llmRawResponse:       raw
+        });
+
+        // Accumulate employer liabilities for HMRC reconciliation
+        EmployerLiabilities storage liab = employerLiabilities[shift.employer];
+        liab.taxToHMRC         += slip.incomeTax;
+        liab.employerNIToHMRC  += slip.employerNI;
+        liab.pensionToProvider += slip.employeePension + slip.employerPension;
+
+        // Update worker YTD for accurate future shift calculations
+        workerProfiles[shift.worker].ytdGrossPence   += slip.grossPay;
+        workerProfiles[shift.worker].ytdTaxPaidPence += slip.incomeTax;
+
+        shift.status = ShiftStatus.Approved;
+
+        emit PayslipCalculated(
+            shiftId,
+            slip.grossPay, slip.incomeTax, slip.employeeNI,
+            slip.employerNI, slip.employeePension, slip.employerPension,
+            slip.holidayPay, slip.netPay
+        );
     }
 
     // ----------------------------------------------------------
-    // STEP 5: Worker claims payment (after Approved)
+    // STEP 5a: Worker claims net pay
     // ----------------------------------------------------------
 
     function claimPayment(uint256 shiftId) external {
         Shift storage shift = shifts[shiftId];
         require(msg.sender == shift.worker, "Not the worker");
-        require(shift.status == ShiftStatus.Approved, "Payment not approved");
+        require(shift.status == ShiftStatus.Approved, "Not approved");
 
         shift.status = ShiftStatus.Settled;
 
-        // Pay worker for the hours the API verified (not just what they claimed)
-        uint256 payment = shift.verifiedHours * shift.agreedHourlyRate;
-        // Return any leftover escrow to the employer
-        uint256 leftover = shift.escrow > payment ? shift.escrow - payment : 0;
+        OnChainPayslip memory slip = payslips[shiftId];
 
-        if (payment > 0) {
-            payable(shift.worker).transfer(payment);
-            emit PaymentReleased(shiftId, shift.worker, payment);
+        // Convert pence to wei
+        // Assumption: 1 STT treated as £1 equivalent for demo purposes
+        // In production: add a price oracle (ironically, using Somnia JSON API agent!)
+        uint256 netWei = slip.netPayPence * 1e16; // 1 pence = 1e16 wei
+
+        if (netWei > shift.escrow) netWei = shift.escrow;
+
+        uint256 leftover = shift.escrow - netWei;
+
+        if (netWei > 0) {
+            payable(shift.worker).transfer(netWei);
+            emit PaymentReleased(shiftId, shift.worker, slip.netPayPence);
         }
         if (leftover > 0) {
             payable(shift.employer).transfer(leftover);
         }
     }
 
-    // Employer reclaims escrow after a rejection
+    // ----------------------------------------------------------
+    // STEP 5b: Employer reclaims after rejection
+    // ----------------------------------------------------------
+
     function reclaimEscrow(uint256 shiftId) external {
         Shift storage shift = shifts[shiftId];
         require(msg.sender == shift.employer, "Not the employer");
@@ -369,7 +595,6 @@ contract ShiftEscrow {
         uint256 amount = shift.escrow;
         shift.escrow = 0;
         payable(shift.employer).transfer(amount);
-        emit PaymentReleased(shiftId, shift.employer, amount);
     }
 
     // ----------------------------------------------------------
@@ -378,17 +603,7 @@ contract ShiftEscrow {
 
     function _rejectShift(uint256 shiftId, string memory reason) internal {
         shifts[shiftId].status = ShiftStatus.Rejected;
-        emit LLMDecision(shiftId, false, reason);
-    }
-
-    function _startsWith(string memory str, string memory prefix) internal pure returns (bool) {
-        bytes memory strBytes = bytes(str);
-        bytes memory prefixBytes = bytes(prefix);
-        if (strBytes.length < prefixBytes.length) return false;
-        for (uint i = 0; i < prefixBytes.length; i++) {
-            if (strBytes[i] != prefixBytes[i]) return false;
-        }
-        return true;
+        emit ShiftRejected(shiftId, reason);
     }
 
     function _toString(uint256 value) internal pure returns (string memory) {
@@ -405,6 +620,5 @@ contract ShiftEscrow {
         return string(buffer);
     }
 
-    // Allow contract to receive STT (needed for agent rebates)
     receive() external payable {}
 }
