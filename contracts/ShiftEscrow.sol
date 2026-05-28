@@ -205,7 +205,7 @@ contract ShiftEscrow {
     // ── EVENTS ───────────────────────────────────────────────
     event WorkerRegistered(address indexed worker, string taxCode, string niCategory);
     event ShiftFunded(uint256 indexed shiftId, address employer, address worker, uint256 escrow);
-    event HoursSubmitted(uint256 indexed shiftId, uint256 hours, uint256 requestId);
+    event HoursSubmitted(uint256 indexed shiftId, uint256 hoursWorked, uint256 requestId);
     event TimesheetVerified(uint256 indexed shiftId, uint256 verifiedHours, uint256 llmRequestId);
     event PayslipCalculated(
         uint256 indexed shiftId,
@@ -487,21 +487,28 @@ contract ShiftEscrow {
     // ────────────────────────────────────────────────────────
     // STEP 5a: Worker claims net pay
     // ────────────────────────────────────────────────────────
+    // ────────────────────────────────────────────────────────
+    // STEP 5a: Worker claims net pay
+    // ────────────────────────────────────────────────────────
     function claimPayment(uint256 shiftId) external {
         Shift storage shift = shifts[shiftId];
-        require(msg.sender == shift.worker,            "Not the worker");
-        require(shift.status == ShiftStatus.Approved,  "Not approved");
+        require(msg.sender == shift.worker,           "Not the worker");
+        require(shift.status == ShiftStatus.Approved, "Not approved");
 
         shift.status = ShiftStatus.Settled;
 
-        // 1 pence = 1e16 wei (treating 1 STT = £1 for demo)
-        // Production: add a Somnia JSON API agent to fetch STT/GBP rate
         uint256 netWei = payslips[shiftId].netPayPence * 1e16;
         if (netWei > shift.escrow) netWei = shift.escrow;
-
         uint256 leftover = shift.escrow - netWei;
-        if (netWei > 0)   payable(shift.worker).transfer(netWei);
-        if (leftover > 0) payable(shift.employer).transfer(leftover);
+
+        if (netWei > 0) {
+            (bool ok1,) = payable(shift.worker).call{value: netWei}("");
+            require(ok1, "Worker payment failed");
+        }
+        if (leftover > 0) {
+            (bool ok2,) = payable(shift.employer).call{value: leftover}("");
+            require(ok2, "Employer rebate failed");
+        }
 
         emit PaymentReleased(shiftId, shift.worker, payslips[shiftId].netPayPence);
     }
@@ -511,13 +518,14 @@ contract ShiftEscrow {
     // ────────────────────────────────────────────────────────
     function reclaimEscrow(uint256 shiftId) external {
         Shift storage shift = shifts[shiftId];
-        require(msg.sender == shift.employer,           "Not the employer");
-        require(shift.status == ShiftStatus.Rejected,   "Not rejected");
+        require(msg.sender == shift.employer,         "Not the employer");
+        require(shift.status == ShiftStatus.Rejected, "Not rejected");
 
         shift.status = ShiftStatus.Settled;
         uint256 amt = shift.escrow;
         shift.escrow = 0;
-        payable(shift.employer).transfer(amt);
+        (bool ok,) = payable(shift.employer).call{value: amt}("");
+        require(ok, "Reclaim failed");
     }
 
     // ── INTERNAL HELPERS ─────────────────────────────────────
