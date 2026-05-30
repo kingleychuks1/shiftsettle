@@ -2,26 +2,26 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { useShiftEscrow, ShiftData, PayslipData } from "../lib/useShiftEscrow";
-import { NI_CATEGORIES, COMMON_TAX_CODES, getCurrentWeekNumber, penceToPounds, SOMNIA_TESTNET } from "../lib/config";
+import { NI_CATEGORIES, COMMON_TAX_CODES, getCurrentWeekNumber, penceToPounds, SOMNIA_TESTNET, CONTRACT_ADDRESS } from "../lib/config";
 import Payslip from "../components/Payslip";
 
 // ── Status styles ─────────────────────────────────────────────
 const STATUS_STYLES: Record<string, string> = {
-  Funded:     "bg-blue-500/20 text-blue-300 border-blue-500/30",
-  Submitted:  "bg-yellow-500/20 text-yellow-300 border-yellow-500/30",
+  Funded: "bg-blue-500/20 text-blue-300 border-blue-500/30",
+  Submitted: "bg-yellow-500/20 text-yellow-300 border-yellow-500/30",
   LLMPending: "bg-purple-500/20 text-purple-300 border-purple-500/30",
-  Approved:   "bg-green-500/20 text-green-300 border-green-500/30",
-  Rejected:   "bg-red-500/20 text-red-300 border-red-500/30",
-  Settled:    "bg-gray-500/20 text-gray-400 border-gray-500/30",
+  Approved: "bg-green-500/20 text-green-300 border-green-500/30",
+  Rejected: "bg-red-500/20 text-red-300 border-red-500/30",
+  Settled: "bg-gray-500/20 text-gray-400 border-gray-500/30",
 };
 
 const STATUS_LABELS: Record<string, string> = {
-  Submitted:  "JSON API Agent running…",
+  Submitted: "JSON API Agent running…",
   LLMPending: "Payroll LLM Agent running…",
-  Approved:   "Payslip calculated ✓",
-  Rejected:   "Rejected",
-  Settled:    "Settled",
-  Funded:     "Awaiting worker",
+  Approved: "Payslip calculated ✓",
+  Rejected: "Rejected",
+  Settled: "Settled",
+  Funded: "Awaiting worker",
 };
 
 type Tab = "employer" | "worker" | "liabilities";
@@ -34,30 +34,30 @@ export default function Dashboard() {
     registerWorker, depositShift, submitHours, claimPayment,
   } = useShiftEscrow();
 
-  const [tab, setTab]               = useState<Tab>("employer");
-  const [shifts, setShifts]         = useState<ShiftData[]>([]);
-  const [selected, setSelected]     = useState<ShiftData | null>(null);
-  const [payslip, setPayslip]       = useState<PayslipData | null>(null);
+  const [tab, setTab] = useState<Tab>("employer");
+  const [shifts, setShifts] = useState<ShiftData[]>([]);
+  const [selected, setSelected] = useState<ShiftData | null>(null);
+  const [payslip, setPayslip] = useState<PayslipData | null>(null);
   const [liabilities, setLiabilities] = useState<{ taxToHMRC: string; employerNIToHMRC: string; pensionToProvider: string } | null>(null);
   const [walletAddress, setWalletAddress] = useState<string>("");
 
   // ── Employer form ──────────────────────────────────────────
-  const [workerAddr, setWorkerAddr]   = useState("");
-  const [hours, setHours]             = useState("8");
-  const [ratePounds, setRatePounds]   = useState("15.00"); // £15/hr
-  const [shiftIdExt, setShiftIdExt]   = useState("SHIFT-001");
-  const [escrowSTT, setEscrowSTT]     = useState("0.5");
+  const [workerAddr, setWorkerAddr] = useState("");
+  const [hours, setHours] = useState("8");
+  const [ratePounds, setRatePounds] = useState("15.00"); // £15/hr
+  const [shiftIdExt, setShiftIdExt] = useState("SHIFT-001");
+  const [escrowSTT, setEscrowSTT] = useState("0.5");
 
   // ── Worker registration form ──────────────────────────────
-  const [regTaxCode, setRegTaxCode]       = useState("1257L");
+  const [regTaxCode, setRegTaxCode] = useState("1257L");
   const [regNICategory, setRegNICategory] = useState("A");
-  const [regYtdGross, setRegYtdGross]     = useState("0");
-  const [regYtdTax, setRegYtdTax]         = useState("0");
-  const [regPension, setRegPension]       = useState(true);
+  const [regYtdGross, setRegYtdGross] = useState("0");
+  const [regYtdTax, setRegYtdTax] = useState("0");
+  const [regPension, setRegPension] = useState(true);
 
   // ── Worker submit form ────────────────────────────────────
   const [submitShiftId, setSubmitShiftId] = useState("");
-  const [submitHrs, setSubmitHrs]         = useState("8");
+  const [submitHrs, setSubmitHrs] = useState("8");
 
   // ── Connect wallet & load data ────────────────────────────
 
@@ -163,20 +163,20 @@ export default function Dashboard() {
     { label: "Escrow deposited", done: true, running: false },
     {
       label: "Worker submits hours",
-      done: ["Submitted","LLMPending","Approved","Rejected","Settled"].includes(selected.status),
+      done: ["Submitted", "LLMPending", "Approved", "Rejected", "Settled"].includes(selected.status),
       running: false,
     },
     {
       label: "JSON API Agent — timesheet verification",
       sub: "Somnia nodes query FlexStaff API · consensus required",
-      done: ["LLMPending","Approved","Rejected","Settled"].includes(selected.status),
+      done: ["LLMPending", "Approved", "Rejected", "Settled"].includes(selected.status),
       running: selected.status === "Submitted",
-      failed: selected.status === "Rejected" && !["LLMPending","Approved","Settled"].includes(selected.status),
+      failed: selected.status === "Rejected" && !["LLMPending", "Approved", "Settled"].includes(selected.status),
     },
     {
       label: "LLM Payroll Agent — UK statutory calculations",
       sub: "PAYE · NI · Pension · Holiday Pay · Deterministic on-chain AI",
-      done: ["Approved","Settled"].includes(selected.status),
+      done: ["Approved", "Settled"].includes(selected.status),
       running: selected.status === "LLMPending",
       failed: selected.status === "Rejected",
     },
@@ -202,7 +202,7 @@ export default function Dashboard() {
         <div className="flex items-center gap-3">
           {walletAddress ? (
             <span className="text-xs text-gray-400 bg-white/5 px-3 py-1.5 rounded-full border border-white/10">
-              {walletAddress.slice(0,6)}…{walletAddress.slice(-4)}
+              {walletAddress.slice(0, 6)}…{walletAddress.slice(-4)}
             </span>
           ) : (
             <button onClick={handleConnectWallet}
@@ -224,11 +224,10 @@ export default function Dashboard() {
 
           {/* Tab selector */}
           <div className="flex gap-1 bg-white/5 rounded-lg p-1">
-            {(["employer","worker","liabilities"] as Tab[]).map(t => (
+            {(["employer", "worker", "liabilities"] as Tab[]).map(t => (
               <button key={t} onClick={() => setTab(t)}
-                className={`flex-1 py-1.5 rounded text-xs font-semibold capitalize transition ${
-                  tab === t ? "bg-purple-600 text-white" : "text-gray-400 hover:text-white"
-                }`}>{t}</button>
+                className={`flex-1 py-1.5 rounded text-xs font-semibold capitalize transition ${tab === t ? "bg-purple-600 text-white" : "text-gray-400 hover:text-white"
+                  }`}>{t}</button>
             ))}
           </div>
 
@@ -257,8 +256,8 @@ export default function Dashboard() {
                   Deposit Escrow & Post Shift
                 </Btn>
                 <p className="text-xs text-gray-500 mt-1">
-                  Estimated gross: £{((parseFloat(hours)||0) * (parseFloat(ratePounds)||0)).toFixed(2)} ·
-                  Employer cost ~£{((parseFloat(hours)||0) * (parseFloat(ratePounds)||0) * 1.168).toFixed(2)} inc. NI+pension
+                  Estimated gross: £{((parseFloat(hours) || 0) * (parseFloat(ratePounds) || 0)).toFixed(2)} ·
+                  Employer cost ~£{((parseFloat(hours) || 0) * (parseFloat(ratePounds) || 0) * 1.168).toFixed(2)} inc. NI+pension
                 </p>
               </Card>
             </div>
@@ -350,9 +349,8 @@ export default function Dashboard() {
             )}
             {shifts.map(s => (
               <button key={s.id} onClick={() => selectShift(s)}
-                className={`w-full text-left rounded-xl p-3.5 border transition ${
-                  selected?.id === s.id ? "border-purple-500 bg-purple-500/10" : "border-white/8 bg-white/3 hover:border-white/20"
-                }`}>
+                className={`w-full text-left rounded-xl p-3.5 border transition ${selected?.id === s.id ? "border-purple-500 bg-purple-500/10" : "border-white/8 bg-white/3 hover:border-white/20"
+                  }`}>
                 <div className="flex items-center justify-between mb-1.5">
                   <span className="font-semibold text-xs">Shift #{s.id}</span>
                   <span className={`text-[10px] px-2 py-0.5 rounded-full border ${STATUS_STYLES[s.status]}`}>
@@ -389,27 +387,26 @@ export default function Dashboard() {
               {/* Pipeline steps */}
               <div className="space-y-2">
                 {pipelineSteps.map((step, i) => (
-                  <div key={i} className={`rounded-lg px-4 py-3 border ${
-                    step.running ? "border-purple-500 bg-purple-500/10" :
-                    step.failed  ? "border-red-500 bg-red-500/10" :
-                    step.done    ? "border-green-600/40 bg-green-500/5" :
-                    "border-white/8 bg-white/3"
-                  }`}>
+                  <div key={i} className={`rounded-lg px-4 py-3 border ${step.running ? "border-purple-500 bg-purple-500/10" :
+                      step.failed ? "border-red-500 bg-red-500/10" :
+                        step.done ? "border-green-600/40 bg-green-500/5" :
+                          "border-white/8 bg-white/3"
+                    }`}>
                     <div className="flex items-center gap-3">
                       {step.running && (
                         <svg className="animate-spin w-3.5 h-3.5 text-purple-400 shrink-0" fill="none" viewBox="0 0 24 24">
-                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
-                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
                         </svg>
                       )}
                       {!step.running && step.done && (
                         <svg className="w-3.5 h-3.5 text-green-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7"/>
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
                         </svg>
                       )}
                       {step.failed && (
                         <svg className="w-3.5 h-3.5 text-red-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12"/>
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" />
                         </svg>
                       )}
                       {!step.running && !step.done && !step.failed && (
