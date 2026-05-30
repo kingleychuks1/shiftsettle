@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { useShiftEscrow, ShiftData, PayslipData } from "../lib/useShiftEscrow";
-import { NI_CATEGORIES, COMMON_TAX_CODES, getCurrentWeekNumber, penceToPounds, SOMNIA_TESTNET, CONTRACT_ADDRESS } from "../lib/config"; P
+import { NI_CATEGORIES, COMMON_TAX_CODES, getCurrentWeekNumber, penceToPounds, SOMNIA_TESTNET, CONTRACT_ADDRESS } from "../lib/config";
 import Payslip from "../components/Payslip";
 
 // ── Status styles ─────────────────────────────────────────────
