@@ -8,7 +8,7 @@ export const SOMNIA_TESTNET = {
   nativeCurrency: { name: "STT", symbol: "STT", decimals: 18 },
 } as const;
 
-export const CONTRACT_ADDRESS = "0x5fac4cc26a15e0024e2bdcb34bd8d0dd4751712c";
+export const CONTRACT_ADDRESS = "0xYOUR_DEPLOYED_CONTRACT_ADDRESS_HERE";
 
 export const SHIFT_ESCROW_ABI = [
   // Worker registration
@@ -56,10 +56,10 @@ export const NI_CATEGORIES = [
 // Common tax codes
 export const COMMON_TAX_CODES = [
   { value: "1257L", label: "1257L — Standard personal allowance" },
-  { value: "BR", label: "BR — Basic rate on all income (second job)" },
-  { value: "0T", label: "0T — No personal allowance" },
-  { value: "D0", label: "D0 — Higher rate on all income" },
-  { value: "NT", label: "NT — No tax" },
+  { value: "BR",    label: "BR — Basic rate on all income (second job)" },
+  { value: "0T",    label: "0T — No personal allowance" },
+  { value: "D0",    label: "D0 — Higher rate on all income" },
+  { value: "NT",    label: "NT — No tax" },
 ] as const;
 
 // Current ISO week number (for weekNumber param)

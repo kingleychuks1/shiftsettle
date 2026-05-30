@@ -1,5 +1,5 @@
 import { HardhatUserConfig } from "hardhat/config";
-import "@nomicfoundation/hardhat-toolbox";
+import "@nomicfoundation/hardhat-ethers";
 import "dotenv/config";
 
 const PRIVATE_KEY = process.env.DEPLOYER_PRIVATE_KEY ?? "";
