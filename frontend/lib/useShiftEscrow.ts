@@ -77,7 +77,7 @@ const somniaChain = {
 
 export function useShiftEscrow() {
   const [loading, setLoading] = useState(false);
-  const [error, setError]     = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   const publicClient = createPublicClient({
     chain: somniaChain,
@@ -99,51 +99,51 @@ export function useShiftEscrow() {
   function formatShift(id: number, r: any[]): ShiftData {
     return {
       id,
-      employer:               r[0],
-      worker:                 r[1],
-      escrow:                 formatEther(r[2]),
-      agreedHourlyRatePence:  Number(r[3]),
+      employer: r[0],
+      worker: r[1],
+      escrow: formatEther(r[2]),
+      agreedHourlyRatePence: Number(r[3]),
       agreedHourlyRateFormatted: penceToPounds(Number(r[3])),
-      agreedHours:            Number(r[4]),
-      submittedHours:         Number(r[5]),
-      verifiedHours:          Number(r[6]),
-      status:                 SHIFT_STATUS[Number(r[7])] ?? "Unknown",
-      externalShiftId:        r[8],
-      weekNumber:             Number(r[9]),
+      agreedHours: Number(r[4]),
+      submittedHours: Number(r[5]),
+      verifiedHours: Number(r[6]),
+      status: SHIFT_STATUS[Number(r[7])] ?? "Unknown",
+      externalShiftId: r[8],
+      weekNumber: Number(r[9]),
     };
   }
 
   // ── Format payslip tuple ─────────────────────────────────────
 
   function formatPayslip(r: any[]): PayslipData {
-    const gross   = Number(r[0]);
-    const tax     = Number(r[1]);
-    const eNI     = Number(r[2]);
-    const erNI    = Number(r[3]);
-    const ePen    = Number(r[4]);
-    const erPen   = Number(r[5]);
-    const hol     = Number(r[6]);
-    const net     = Number(r[7]);
+    const gross = Number(r[0]);
+    const tax = Number(r[1]);
+    const eNI = Number(r[2]);
+    const erNI = Number(r[3]);
+    const ePen = Number(r[4]);
+    const erPen = Number(r[5]);
+    const hol = Number(r[6]);
+    const net = Number(r[7]);
     return {
-      grossPayPence:        gross,
-      incomeTaxPence:       tax,
-      employeeNIPence:      eNI,
-      employerNIPence:      erNI,
+      grossPayPence: gross,
+      incomeTaxPence: tax,
+      employeeNIPence: eNI,
+      employerNIPence: erNI,
       employeePensionPence: ePen,
       employerPensionPence: erPen,
-      holidayPayPence:      hol,
-      netPayPence:          net,
-      llmRawResponse:       r[8],
-      grossPay:             penceToPounds(gross),
-      incomeTax:            penceToPounds(tax),
-      employeeNI:           penceToPounds(eNI),
-      employerNI:           penceToPounds(erNI),
-      employeePension:      penceToPounds(ePen),
-      employerPension:      penceToPounds(erPen),
-      holidayPay:           penceToPounds(hol),
-      netPay:               penceToPounds(net),
-      totalDeductions:      penceToPounds(tax + eNI + ePen),
-      totalCostToEmployer:  penceToPounds(gross + erNI + erPen),
+      holidayPayPence: hol,
+      netPayPence: net,
+      llmRawResponse: r[8],
+      grossPay: penceToPounds(gross),
+      incomeTax: penceToPounds(tax),
+      employeeNI: penceToPounds(eNI),
+      employerNI: penceToPounds(erNI),
+      employeePension: penceToPounds(ePen),
+      employerPension: penceToPounds(erPen),
+      holidayPay: penceToPounds(hol),
+      netPay: penceToPounds(net),
+      totalDeductions: penceToPounds(tax + eNI + ePen),
+      totalCostToEmployer: penceToPounds(gross + erNI + erPen),
     };
   }
 
@@ -155,15 +155,15 @@ export function useShiftEscrow() {
       abi: SHIFT_ESCROW_ABI,
       functionName: "workerProfiles",
       args: [address as `0x${string}`],
-    }) as any[];
+    }) as unknown as any[];
     if (!r[5]) return null; // not registered
     return {
-      taxCode:        r[0],
-      niCategory:     r[1],
-      ytdGrossPence:  Number(r[2]),
+      taxCode: r[0],
+      niCategory: r[1],
+      ytdGrossPence: Number(r[2]),
       ytdTaxPaidPence: Number(r[3]),
       pensionOptedIn: r[4],
-      registered:     r[5],
+      registered: r[5],
     };
   }, [publicClient]);
 
@@ -175,7 +175,7 @@ export function useShiftEscrow() {
       abi: SHIFT_ESCROW_ABI,
       functionName: "shifts",
       args: [BigInt(shiftId)],
-    }) as any[];
+    }) as unknown as any[];
     return formatShift(shiftId, r);
   }, [publicClient]);
 
@@ -187,7 +187,7 @@ export function useShiftEscrow() {
       abi: SHIFT_ESCROW_ABI,
       functionName: "payslips",
       args: [BigInt(shiftId)],
-    }) as any[];
+    }) as unknown as any[];
     if (Number(r[0]) === 0) return null; // no payslip yet
     return formatPayslip(r);
   }, [publicClient]);
@@ -211,9 +211,9 @@ export function useShiftEscrow() {
       abi: SHIFT_ESCROW_ABI,
       functionName: "employerLiabilities",
       args: [employer as `0x${string}`],
-    }) as any[];
+    }) as unknown as any[];
     return {
-      taxToHMRC:        penceToPounds(Number(r[0])),
+      taxToHMRC: penceToPounds(Number(r[0])),
       employerNIToHMRC: penceToPounds(Number(r[1])),
       pensionToProvider: penceToPounds(Number(r[2])),
     };
@@ -282,7 +282,7 @@ export function useShiftEscrow() {
             shiftId = Number(decoded.args.shiftId);
             break;
           }
-        } catch {}
+        } catch { }
       }
       return { hash, shiftId };
     } catch (e: any) { setError(e.message); throw e; }

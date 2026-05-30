@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { useShiftEscrow, ShiftData, PayslipData } from "../lib/useShiftEscrow";
-import { NI_CATEGORIES, COMMON_TAX_CODES, getCurrentWeekNumber, penceToPounds, SOMNIA_TESTNET, CONTRACT_ADDRESS } from "../lib/config";
+import { NI_CATEGORIES, COMMON_TAX_CODES, getCurrentWeekNumber, penceToPounds, SOMNIA_TESTNET, CONTRACT_ADDRESS } from "../lib/config"; P
 import Payslip from "../components/Payslip";
 
 // ── Status styles ─────────────────────────────────────────────
@@ -388,9 +388,9 @@ export default function Dashboard() {
               <div className="space-y-2">
                 {pipelineSteps.map((step, i) => (
                   <div key={i} className={`rounded-lg px-4 py-3 border ${step.running ? "border-purple-500 bg-purple-500/10" :
-                      step.failed ? "border-red-500 bg-red-500/10" :
-                        step.done ? "border-green-600/40 bg-green-500/5" :
-                          "border-white/8 bg-white/3"
+                    step.failed ? "border-red-500 bg-red-500/10" :
+                      step.done ? "border-green-600/40 bg-green-500/5" :
+                        "border-white/8 bg-white/3"
                     }`}>
                     <div className="flex items-center gap-3">
                       {step.running && (
