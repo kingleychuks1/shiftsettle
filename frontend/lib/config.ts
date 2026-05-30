@@ -11,30 +11,23 @@ export const SOMNIA_TESTNET = {
 export const CONTRACT_ADDRESS = "0xe41679fb994bedd880795e81cc2b9d39831548d0";
 
 export const SHIFT_ESCROW_ABI = [
-  // Worker registration
-  "function registerWorker(string taxCode, string niCategory, uint256 ytdGrossPence, uint256 ytdTaxPaidPence, bool pensionOptedIn)",
-  "function workerProfiles(address) view returns (string taxCode, string niCategory, uint256 ytdGrossPence, uint256 ytdTaxPaidPence, bool pensionOptedIn, bool registered)",
-
-  // Shift lifecycle
-  "function depositShift(address worker, uint256 agreedHours, uint256 agreedHourlyRatePence, string externalShiftId, uint256 weekNumber) payable returns (uint256 shiftId)",
-  "function submitHours(uint256 shiftId, uint256 hoursWorked)",
-  "function claimPayment(uint256 shiftId)",
-  "function reclaimEscrow(uint256 shiftId)",
-
-  // Read
-  "function shifts(uint256) view returns (address employer, address worker, uint256 escrow, uint256 agreedHourlyRatePence, uint256 agreedHours, uint256 submittedHours, uint256 verifiedHours, uint8 status, string externalShiftId, uint256 weekNumber)",
-  "function payslips(uint256) view returns (uint256 grossPayPence, uint256 incomeTaxPence, uint256 employeeNIPence, uint256 employerNIPence, uint256 employeePensionPence, uint256 employerPensionPence, uint256 holidayPayPence, uint256 netPayPence, string llmRawResponse)",
-  "function employerLiabilities(address) view returns (uint256 taxToHMRC, uint256 employerNIToHMRC, uint256 pensionToProvider)",
-  "function nextShiftId() view returns (uint256)",
-
-  // Events
-  "event WorkerRegistered(address indexed worker, string taxCode, string niCategory)",
-  "event ShiftFunded(uint256 indexed shiftId, address employer, address worker, uint256 escrow)",
-  "event HoursSubmitted(uint256 indexed shiftId, uint256 hours, uint256 agentRequestId)",
-  "event TimesheetVerified(uint256 indexed shiftId, uint256 verifiedHours, uint256 llmRequestId)",
-  "event PayslipCalculated(uint256 indexed shiftId, uint256 grossPay, uint256 incomeTax, uint256 employeeNI, uint256 employerNI, uint256 employeePension, uint256 employerPension, uint256 holidayPay, uint256 netPay)",
-  "event PaymentReleased(uint256 indexed shiftId, address recipient, uint256 amountPence)",
-  "event ShiftRejected(uint256 indexed shiftId, string reason)",
+  { "inputs": [{ "internalType": "uint256", "name": "shiftId", "type": "uint256" }], "name": "claimPayment", "outputs": [], "stateMutability": "nonpayable", "type": "function" },
+  { "inputs": [{ "internalType": "address", "name": "worker", "type": "address" }, { "internalType": "uint256", "name": "agreedHours", "type": "uint256" }, { "internalType": "uint256", "name": "agreedHourlyRatePence", "type": "uint256" }, { "internalType": "string", "name": "externalShiftId", "type": "string" }, { "internalType": "uint256", "name": "weekNumber", "type": "uint256" }], "name": "depositShift", "outputs": [{ "internalType": "uint256", "name": "shiftId", "type": "uint256" }], "stateMutability": "payable", "type": "function" },
+  { "inputs": [{ "internalType": "uint256", "name": "shiftId", "type": "uint256" }], "name": "reclaimEscrow", "outputs": [], "stateMutability": "nonpayable", "type": "function" },
+  { "inputs": [{ "internalType": "string", "name": "taxCode", "type": "string" }, { "internalType": "string", "name": "niCategory", "type": "string" }, { "internalType": "uint256", "name": "ytdGrossPence", "type": "uint256" }, { "internalType": "uint256", "name": "ytdTaxPaidPence", "type": "uint256" }, { "internalType": "bool", "name": "pensionOptedIn", "type": "bool" }], "name": "registerWorker", "outputs": [], "stateMutability": "nonpayable", "type": "function" },
+  { "inputs": [{ "internalType": "uint256", "name": "shiftId", "type": "uint256" }, { "internalType": "uint256", "name": "hoursWorked", "type": "uint256" }], "name": "submitHours", "outputs": [], "stateMutability": "nonpayable", "type": "function" },
+  { "inputs": [], "name": "nextShiftId", "outputs": [{ "internalType": "uint256", "name": "", "type": "uint256" }], "stateMutability": "view", "type": "function" },
+  { "inputs": [{ "internalType": "address", "name": "", "type": "address" }], "name": "workerProfiles", "outputs": [{ "internalType": "string", "name": "taxCode", "type": "string" }, { "internalType": "string", "name": "niCategory", "type": "string" }, { "internalType": "uint256", "name": "ytdGrossPence", "type": "uint256" }, { "internalType": "uint256", "name": "ytdTaxPaidPence", "type": "uint256" }, { "internalType": "bool", "name": "pensionOptedIn", "type": "bool" }, { "internalType": "bool", "name": "registered", "type": "bool" }], "stateMutability": "view", "type": "function" },
+  { "inputs": [{ "internalType": "uint256", "name": "", "type": "uint256" }], "name": "shifts", "outputs": [{ "internalType": "address", "name": "employer", "type": "address" }, { "internalType": "address", "name": "worker", "type": "address" }, { "internalType": "uint256", "name": "escrow", "type": "uint256" }, { "internalType": "uint256", "name": "agreedHourlyRatePence", "type": "uint256" }, { "internalType": "uint256", "name": "agreedHours", "type": "uint256" }, { "internalType": "uint256", "name": "submittedHours", "type": "uint256" }, { "internalType": "uint256", "name": "verifiedHours", "type": "uint256" }, { "internalType": "uint8", "name": "status", "type": "uint8" }, { "internalType": "string", "name": "externalShiftId", "type": "string" }, { "internalType": "uint256", "name": "weekNumber", "type": "uint256" }], "stateMutability": "view", "type": "function" },
+  { "inputs": [{ "internalType": "uint256", "name": "", "type": "uint256" }], "name": "payslips", "outputs": [{ "internalType": "uint256", "name": "grossPayPence", "type": "uint256" }, { "internalType": "uint256", "name": "incomeTaxPence", "type": "uint256" }, { "internalType": "uint256", "name": "employeeNIPence", "type": "uint256" }, { "internalType": "uint256", "name": "employerNIPence", "type": "uint256" }, { "internalType": "uint256", "name": "employeePensionPence", "type": "uint256" }, { "internalType": "uint256", "name": "employerPensionPence", "type": "uint256" }, { "internalType": "uint256", "name": "holidayPayPence", "type": "uint256" }, { "internalType": "uint256", "name": "netPayPence", "type": "uint256" }, { "internalType": "string", "name": "llmRawResponse", "type": "string" }], "stateMutability": "view", "type": "function" },
+  { "inputs": [{ "internalType": "address", "name": "", "type": "address" }], "name": "employerLiabilities", "outputs": [{ "internalType": "uint256", "name": "taxToHMRC", "type": "uint256" }, { "internalType": "uint256", "name": "employerNIToHMRC", "type": "uint256" }, { "internalType": "uint256", "name": "pensionToProvider", "type": "uint256" }], "stateMutability": "view", "type": "function" },
+  { "anonymous": false, "inputs": [{ "indexed": true, "internalType": "address", "name": "worker", "type": "address" }, { "indexed": false, "internalType": "string", "name": "taxCode", "type": "string" }, { "indexed": false, "internalType": "string", "name": "niCategory", "type": "string" }], "name": "WorkerRegistered", "type": "event" },
+  { "anonymous": false, "inputs": [{ "indexed": true, "internalType": "uint256", "name": "shiftId", "type": "uint256" }, { "indexed": false, "internalType": "address", "name": "employer", "type": "address" }, { "indexed": false, "internalType": "address", "name": "worker", "type": "address" }, { "indexed": false, "internalType": "uint256", "name": "escrow", "type": "uint256" }], "name": "ShiftFunded", "type": "event" },
+  { "anonymous": false, "inputs": [{ "indexed": true, "internalType": "uint256", "name": "shiftId", "type": "uint256" }, { "indexed": false, "internalType": "uint256", "name": "hoursWorked", "type": "uint256" }, { "indexed": false, "internalType": "uint256", "name": "requestId", "type": "uint256" }], "name": "HoursSubmitted", "type": "event" },
+  { "anonymous": false, "inputs": [{ "indexed": true, "internalType": "uint256", "name": "shiftId", "type": "uint256" }, { "indexed": false, "internalType": "uint256", "name": "verifiedHours", "type": "uint256" }, { "indexed": false, "internalType": "uint256", "name": "llmRequestId", "type": "uint256" }], "name": "TimesheetVerified", "type": "event" },
+  { "anonymous": false, "inputs": [{ "indexed": true, "internalType": "uint256", "name": "shiftId", "type": "uint256" }, { "indexed": false, "internalType": "uint256", "name": "grossPay", "type": "uint256" }, { "indexed": false, "internalType": "uint256", "name": "incomeTax", "type": "uint256" }, { "indexed": false, "internalType": "uint256", "name": "employeeNI", "type": "uint256" }, { "indexed": false, "internalType": "uint256", "name": "employerNI", "type": "uint256" }, { "indexed": false, "internalType": "uint256", "name": "employeePension", "type": "uint256" }, { "indexed": false, "internalType": "uint256", "name": "employerPension", "type": "uint256" }, { "indexed": false, "internalType": "uint256", "name": "holidayPay", "type": "uint256" }, { "indexed": false, "internalType": "uint256", "name": "netPay", "type": "uint256" }], "name": "PayslipCalculated", "type": "event" },
+  { "anonymous": false, "inputs": [{ "indexed": true, "internalType": "uint256", "name": "shiftId", "type": "uint256" }, { "indexed": false, "internalType": "address", "name": "recipient", "type": "address" }, { "indexed": false, "internalType": "uint256", "name": "amountPence", "type": "uint256" }], "name": "PaymentReleased", "type": "event" },
+  { "anonymous": false, "inputs": [{ "indexed": true, "internalType": "uint256", "name": "shiftId", "type": "uint256" }, { "indexed": false, "internalType": "string", "name": "reason", "type": "string" }], "name": "ShiftRejected", "type": "event" }
 ] as const;
 
 export const SHIFT_STATUS = [
@@ -43,7 +36,6 @@ export const SHIFT_STATUS = [
 
 export type ShiftStatusKey = typeof SHIFT_STATUS[number];
 
-// NI categories with descriptions for the UI
 export const NI_CATEGORIES = [
   { value: "A", label: "A — Standard (most employees)" },
   { value: "B", label: "B — Married women / widows (reduced rate)" },
@@ -53,7 +45,6 @@ export const NI_CATEGORIES = [
   { value: "Z", label: "Z — Under 21, deferment" },
 ] as const;
 
-// Common tax codes
 export const COMMON_TAX_CODES = [
   { value: "1257L", label: "1257L — Standard personal allowance" },
   { value: "BR", label: "BR — Basic rate on all income (second job)" },
@@ -62,7 +53,6 @@ export const COMMON_TAX_CODES = [
   { value: "NT", label: "NT — No tax" },
 ] as const;
 
-// Current ISO week number (for weekNumber param)
 export function getCurrentWeekNumber(): number {
   const now = new Date();
   const start = new Date(now.getFullYear(), 0, 1);
@@ -70,7 +60,6 @@ export function getCurrentWeekNumber(): number {
   return Math.ceil((diff / 86400000 + start.getDay() + 1) / 7);
 }
 
-// Format pence to £ string
 export function penceToPounds(pence: number | bigint): string {
   const p = typeof pence === "bigint" ? Number(pence) : pence;
   return `£${(p / 100).toFixed(2)}`;
